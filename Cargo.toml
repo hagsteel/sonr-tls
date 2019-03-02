@@ -1,0 +1,9 @@
+[package]
+name = "sonr_tls"
+version = "0.1.0"
+authors = ["Jonas Hagstedt <hagstedt@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+sonr = {path = "../sonr-alpha" }
+native-tls = "0.2.2" 
