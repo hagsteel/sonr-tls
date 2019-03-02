@@ -68,10 +68,7 @@ impl<S> Reactive for ReactiveTlsAcceptor<S>
     }
 
     fn react(&mut self) -> Reaction<Self::Output> {
-        match self.ready_streams.pop_front() {
-            Some(stream) => Reaction::Value(stream),
-            None => Reaction::NoReaction
-        }
+        self.ready_streams.pop_front().into()
     }
 }
 
