@@ -5,13 +5,12 @@ use std::sync::Arc;
 
 use sonr::errors::Result;
 use sonr::net::stream::Stream;
-use sonr::reactor::{Reaction, Reactive};
+use sonr::reactor::{Reaction, Reactor};
 
 use native_tls::{HandshakeError, Identity, MidHandshakeTlsStream, TlsAcceptor};
 use sonr::{Evented, Token};
 
 pub use native_tls::TlsStream;
-
 
 pub struct ReactiveTlsAcceptor<S>
 where
@@ -34,7 +33,7 @@ where
     }
 }
 
-impl<S> Reactive for ReactiveTlsAcceptor<S>
+impl<S> Reactor for ReactiveTlsAcceptor<S>
 where
     S: Evented + Read + Write,
 {
@@ -43,7 +42,6 @@ where
 
     fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
         match reaction {
-
             Reaction::Value(stream) => {
                 match Stream::new(stream) {
                     Ok(stream) => {
@@ -53,33 +51,29 @@ where
                                 self.handshakes.insert(stream.get_ref().token(), stream);
                                 return Reaction::Continue;
                             }
-                            Err(_e) => { return Reaction::Continue; /* Let the connections drop on error for now */ }
+                            Err(_e) => {
+                                return Reaction::Continue; /* Let the connections drop on error for now */
+                            }
                         }
                     }
                     Err(_) => Reaction::Continue,
                 }
             }
-
             Reaction::Event(event) => {
-
                 if let Some(stream) = self.handshakes.remove(&event.token()) {
                     match stream.handshake() {
                         Ok(stream) => return Reaction::Value(stream),
                         Err(HandshakeError::WouldBlock(stream)) => {
                             self.handshakes.insert(stream.get_ref().token(), stream);
-                            return Reaction::Continue;
+                            Reaction::Continue
                         }
-                        Err(_e) => { return Reaction::Continue  /* Let the connections drop on error for now */ }
+                        Err(_e) => { Reaction::Continue /* Let the connections drop on error for now */ }
                     }
+                } else {
+                    Reaction::Event(event)
                 }
-
-
-                return Reaction::Event(event);
-
             }
-
             Reaction::Continue => Reaction::Continue,
-
         }
     }
 }
