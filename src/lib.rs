@@ -1,74 +1,86 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use sonr::reactor::{Reactive, Reaction};
-use sonr::net::stream::Stream;
 use sonr::errors::Result;
+use sonr::net::stream::Stream;
+use sonr::reactor::{Reaction, Reactive};
 
-use native_tls::{Identity, TlsAcceptor, HandshakeError, MidHandshakeTlsStream};
-use sonr::{Event, Evented, Token};
+use native_tls::{HandshakeError, Identity, MidHandshakeTlsStream, TlsAcceptor};
+use sonr::{Evented, Token};
 
 pub use native_tls::TlsStream;
 
-pub struct ReactiveTlsAcceptor<S> 
-    where S: Evented + Read + Write
+
+pub struct ReactiveTlsAcceptor<S>
+where
+    S: Evented + Read + Write,
 {
     acceptor: Arc<TlsAcceptor>,
     handshakes: HashMap<Token, MidHandshakeTlsStream<Stream<S>>>,
-    ready_streams: VecDeque<TlsStream<Stream<S>>>,
 }
 
-impl<S> ReactiveTlsAcceptor<S> 
-    where S: Evented + Read + Write
+impl<S> ReactiveTlsAcceptor<S>
+where
+    S: Evented + Read + Write,
 {
     pub fn new(cert_path: &str, cert_pass: &str) -> Result<Self> {
         let acceptor = acceptor(cert_path, cert_pass)?;
         Ok(Self {
             acceptor,
             handshakes: HashMap::new(),
-            ready_streams: VecDeque::new(),
         })
     }
 }
 
-impl<S> Reactive for ReactiveTlsAcceptor<S> 
-    where S: Evented + Read + Write
+impl<S> Reactive for ReactiveTlsAcceptor<S>
+where
+    S: Evented + Read + Write,
 {
     type Output = TlsStream<Stream<S>>;
     type Input = S;
 
-    fn react_to(&mut self, stream: Self::Input) {
-        if let Ok(stream) = Stream::new(stream) {
-            match self.acceptor.accept(stream) {
-                Ok(stream) => self.ready_streams.push_back(stream),
-                Err(HandshakeError::WouldBlock(stream)) => {
-                    self.handshakes.insert(stream.get_ref().token(), stream);
-                }
-                Err(_e) => { /* Let the connections drop on error for now */ },
-            }
-        }
-    }
+    fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
+        match reaction {
 
-    fn reacting(&mut self, event: Event) -> bool {
-        if let Some(stream) = self.handshakes.remove(&event.token()) {
-            match stream.handshake() {
-                Ok(stream) => self.ready_streams.push_back(stream),
-                Err(HandshakeError::WouldBlock(stream)) => {
-                    self.handshakes.insert(stream.get_ref().token(), stream);
+            Reaction::Value(stream) => {
+                match Stream::new(stream) {
+                    Ok(stream) => {
+                        match self.acceptor.accept(stream) {
+                            Ok(stream) => return Reaction::Value(stream),
+                            Err(HandshakeError::WouldBlock(stream)) => {
+                                self.handshakes.insert(stream.get_ref().token(), stream);
+                                return Reaction::Continue;
+                            }
+                            Err(_e) => { return Reaction::Continue; /* Let the connections drop on error for now */ }
+                        }
+                    }
+                    Err(_) => Reaction::Continue,
                 }
-                Err(_e) => { /* Let the connections drop on error for now */ },
             }
 
-            true
-        } else { 
-            false 
-        }
-    }
+            Reaction::Event(event) => {
 
-    fn react(&mut self) -> Reaction<Self::Output> {
-        self.ready_streams.pop_front().into()
+                if let Some(stream) = self.handshakes.remove(&event.token()) {
+                    match stream.handshake() {
+                        Ok(stream) => return Reaction::Value(stream),
+                        Err(HandshakeError::WouldBlock(stream)) => {
+                            self.handshakes.insert(stream.get_ref().token(), stream);
+                            return Reaction::Continue;
+                        }
+                        Err(_e) => { return Reaction::Continue  /* Let the connections drop on error for now */ }
+                    }
+                }
+
+
+                return Reaction::Event(event);
+
+            }
+
+            Reaction::Continue => Reaction::Continue,
+
+        }
     }
 }
 
