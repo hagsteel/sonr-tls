@@ -1,15 +1,17 @@
 use sonr::net::stream::Stream;
 use sonr::net::tcp::ReactiveTcpListener;
 use sonr::net::tcp::TcpListener;
-use sonr::reactor::{Reaction, Reactive};
+use sonr::reactor::{Reaction, Reactor};
 use sonr::sync::queue;
 use sonr::system::System;
 use sonr::{Event, Evented, Token};
-use sonr_tls::{ReactiveTlsAcceptor, TlsStream};
+use sonr_tls::{ReactiveTlsAcceptor};
 use std::collections::HashMap;
 use std::env;
 use std::io::{ErrorKind::WouldBlock, Read, Write};
 use std::thread;
+
+use sonr_tls::TlsStream;
 
 static RESPONSE: &'static [u8] = b"HTTP/1.1 200 OK\nContent-Length: 13\n\nHello World\n\n";
 
@@ -17,7 +19,7 @@ struct TlsConnections<S: Evented + Read + Write> {
     connections: HashMap<Token, TlsStream<Stream<S>>>,
 }
 
-impl<S> Reactive for TlsConnections<S>
+impl<S> Reactor for TlsConnections<S>
 where
     S: Evented + Read + Write,
 {
@@ -72,7 +74,7 @@ fn main() {
         let stealer = queue.deque();
         thread::spawn(move || {
             System::init();
-            let stealer = queue::ReactiveDeque::new(stealer).unwrap();
+            let stealer = queue::ReactiveDeque::new(stealer).unwrap().map(|s| Stream::new(s).unwrap());
             let path = env::var("SONR_PFX_PATH").unwrap();
             let pass = env::var("SONR_PFX_PASS").unwrap();
             let acceptor = ReactiveTlsAcceptor::new(&path, &pass).unwrap();

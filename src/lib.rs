@@ -10,7 +10,9 @@ use sonr::reactor::{Reaction, Reactor};
 use native_tls::{HandshakeError, Identity, MidHandshakeTlsStream, TlsAcceptor};
 use sonr::{Evented, Token};
 
-pub use native_tls::TlsStream;
+mod stream;
+
+pub use crate::stream::TlsStream;
 
 pub struct ReactiveTlsAcceptor<S>
 where
@@ -38,40 +40,38 @@ where
     S: Evented + Read + Write,
 {
     type Output = TlsStream<Stream<S>>;
-    type Input = S;
+    type Input = Stream<S>;
 
     fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
         match reaction {
             Reaction::Value(stream) => {
-                match Stream::new(stream) {
-                    Ok(stream) => {
-                        match self.acceptor.accept(stream) {
-                            Ok(stream) => return Reaction::Value(stream),
-                            Err(HandshakeError::WouldBlock(stream)) => {
-                                self.handshakes.insert(stream.get_ref().token(), stream);
-                                return Reaction::Continue;
-                            }
-                            Err(_e) => {
-                                return Reaction::Continue; /* Let the connections drop on error for now */
-                            }
-                        }
+                match self.acceptor.accept(stream) {
+                    Ok(stream) => return Reaction::Value(TlsStream::new(stream)),
+                    Err(HandshakeError::WouldBlock(stream)) => {
+                        self.handshakes.insert(stream.get_ref().token(), stream);
+                        return Reaction::Continue;
                     }
-                    Err(_) => Reaction::Continue,
+                    Err(_e) => {
+                        return Reaction::Continue; /* Let the connections drop on error for now */
+                    }
                 }
             }
             Reaction::Event(event) => {
                 if let Some(stream) = self.handshakes.remove(&event.token()) {
                     match stream.handshake() {
-                        Ok(stream) => return Reaction::Value(stream),
+                        Ok(stream) => return Reaction::Value(TlsStream::new(stream)),
                         Err(HandshakeError::WouldBlock(stream)) => {
                             self.handshakes.insert(stream.get_ref().token(), stream);
                             Reaction::Continue
                         }
-                        Err(_e) => { Reaction::Continue /* Let the connections drop on error for now */ }
+                        Err(_e) => {
+                            Reaction::Continue /* Let the connections drop on error for now */
+                        }
                     }
                 } else {
                     Reaction::Event(event)
                 }
+                //Reaction::Continue
             }
             Reaction::Continue => Reaction::Continue,
         }
