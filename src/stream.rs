@@ -1,6 +1,6 @@
 use std::io::{self, Read, Write};
 use sonr::{Evented, Poll, PollOpt, Ready, Token};
-use sonr::net::stream::Stream;
+use sonr::net::stream::{Stream, StreamRef};
 
 impl<T: Evented + Read + Write> AsRef<Stream<T>> for TlsStream<Stream<T>> {
     fn as_ref(&self) -> &Stream<T> {
@@ -70,5 +70,17 @@ impl<T: Read + Write> Write for TlsStream<T> {
 
     fn flush(&mut self) -> io::Result<()> {
         self.0.flush()
+    }
+}
+
+impl<T: Evented + Read + Write> StreamRef for TlsStream<Stream<T>> {
+    type Evented = T;
+
+    fn stream_ref(&self) -> &Stream<T> {
+        self.0.get_ref()
+    }
+
+    fn stream_mut(&mut self) -> &mut Stream<T> {
+        self.0.get_mut()
     }
 }
