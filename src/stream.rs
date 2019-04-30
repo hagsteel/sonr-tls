@@ -1,28 +1,28 @@
-use std::io::{self, Read, Write};
-use sonr::{Evented, Poll, PollOpt, Ready, Token};
 use sonr::net::stream::{Stream, StreamRef};
-
-impl<T: Evented + Read + Write> AsRef<Stream<T>> for TlsStream<Stream<T>> {
-    fn as_ref(&self) -> &Stream<T> {
-        self.0.get_ref()
-    }
-}
-
-impl<T: Evented + Read + Write> AsMut<Stream<T>> for TlsStream<Stream<T>> {
-    fn as_mut(&mut self) -> &mut Stream<T> {
-        self.0.get_mut()
-    }
-}
+use sonr::{Evented, Poll, PollOpt, Ready, Token};
+use std::fmt::{self, Debug, Formatter};
+use std::io::{self, Read, Write};
 
 pub struct TlsStream<T>(native_tls::TlsStream<T>);
 
 impl<T> TlsStream<T> {
     pub fn new(inner: native_tls::TlsStream<T>) -> Self {
         Self(inner)
-    } 
+    }
 }
 
-impl<T : Read + Write> TlsStream<T> {
+impl<T> Debug for TlsStream<T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("Stream")
+            .field("0", &self.0)
+            .finish()
+    }
+}
+
+impl<T: Read + Write> TlsStream<T> {
     pub fn get_ref(&self) -> &T {
         self.0.get_ref()
     }
@@ -32,30 +32,31 @@ impl<T : Read + Write> TlsStream<T> {
     }
 }
 
-impl<T : Read + Write + Evented> Evented for TlsStream<T> {
-    fn register(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
-        poll.register(
-            self.0.get_ref(),
-            token,
-            interest,
-            opts
-        )
+impl<T: Read + Write + Evented> Evented for TlsStream<T> {
+    fn register(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> io::Result<()> {
+        poll.register(self.0.get_ref(), token, interest, opts)
     }
 
-    fn reregister(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
-        poll.reregister(
-            self.0.get_ref(),
-            token,
-            interest,
-            opts
-        )
+    fn reregister(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> io::Result<()> {
+        poll.reregister(self.0.get_ref(), token, interest, opts)
     }
 
     fn deregister(&self, poll: &Poll) -> io::Result<()> {
         poll.deregister(self.0.get_ref())
     }
 }
-
 
 impl<T: Read + Write> Read for TlsStream<T> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
